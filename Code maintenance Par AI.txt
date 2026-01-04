@@ -1,0 +1,112 @@
+# Manipulation des données
+import pandas as pd
+import numpy as np
+
+# Visualisation
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+# Prétraitement
+from sklearn.preprocessing import MinMaxScaler, StandardScaler
+
+# Modèles de Machine Learning
+from sklearn.linear_model import LinearRegression
+from sklearn.ensemble import RandomForestRegressor
+
+# Évaluation
+from sklearn.metrics import mean_squared_error
+train = pd.read_csv("train_FD001.txt", sep=" ", header=None)
+test = pd.read_csv("test_FD001.txt", sep=" ", header=None)
+train = train.iloc[:, :26]
+test = test.iloc[:, :26]
+
+columns = ['unit', 'cycle'] + \
+[f'op_{i}' for i in range(1,4)] + \
+[f'sensor_{i}' for i in range(1,22)]
+
+train.columns = columns
+test.columns = columns
+train.head() # Voir les premières lignes
+train.info() # Vérifier types et nombre de colonnes
+train.describe() # Statistiques descriptives
+import matplotlib.pyplot as plt
+
+engine_1 = train[train['unit'] == 1]
+
+plt.figure(figsize=(10,5))
+plt.plot(engine_1['cycle'], engine_1['sensor_7'])
+plt.xlabel("Cycle")
+plt.ylabel("Capteur 7")
+plt.title("Évolution du capteur 7 - Moteur 1")
+plt.show()
+max_cycle = train.groupby('unit')['cycle'].max()
+train = train.merge(max_cycle, on='unit', suffixes=('', '_max'))
+train['RUL'] = train['cycle_max'] - train['cycle']
+train.drop('cycle_max', axis=1, inplace=True)
+constant_cols = [col for col in train.columns if train[col].std() == 0]
+
+train.drop(columns=constant_cols, inplace=True)
+test.drop(columns=constant_cols, inplace=True)
+from sklearn.preprocessing import MinMaxScaler
+
+X = train.drop(['unit','cycle','RUL'], axis=1)
+y = train['RUL']
+scaler = MinMaxScaler()
+X_scaled = scaler.fit_transform(X)
+from sklearn.model_selection import train_test_split
+
+X_train, X_val, y_train, y_val = train_test_split(X_scaled, y, test_size=0.2, random_state=42)
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.metrics import mean_squared_error
+
+rf = RandomForestRegressor(n_estimators=100, random_state=42)
+rf.fit(X_train, y_train)
+
+y_pred = rf.predict(X_val)
+mse = mean_squared_error(y_val, y_pred)
+print("MSE validation :", mse)
+plt.figure(figsize=(10,5))
+plt.plot(y_val.values, label='Vrai RUL')
+plt.plot(y_pred, label='RUL prédit')
+plt.legend()
+plt.show()
+X_test = test.drop(['unit','cycle'], axis=1)
+X_test_scaled = scaler.transform(X_test)
+y_test_pred = rf.predict(X_test_scaled)
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.metrics import mean_squared_error
+
+rf = RandomForestRegressor(n_estimators=100, random_state=42)
+rf.fit(X_train, y_train)
+
+y_pred = rf.predict(X_val)
+mse = mean_squared_error(y_val, y_pred)
+print("MSE validation :", mse)
+# Séparer les colonnes de test
+X_test = test.drop(['unit','cycle'], axis=1)
+
+# Appliquer le même scaler que pour l'entraînement
+X_test_scaled = scaler.transform(X_test)
+# Prédiction avec le modèle entraîné
+y_test_pred = rf.predict(X_test_scaled)
+# Charger les RUL réels
+rul_true = pd.read_csv("RUL_FD001.txt", header=None)
+rul_true = rul_true[0].values # convertir en array
+# Ajouter les prédictions ligne par ligne
+test['RUL_pred'] = y_test_pred
+# Pour chaque moteur, prendre la prédiction du dernier cycle
+y_test_pred_last = test.groupby('unit')['RUL_pred'].last().values
+from sklearn.metrics import mean_squared_error, mean_absolute_error
+
+mse = mean_squared_error(rul_true, y_test_pred_last)
+mae = mean_absolute_error(rul_true, y_test_pred_last)
+
+print("MSE test :", mse)
+print("MAE test :", mae)
+import joblib
+
+# Sauvegarder
+joblib.dump(rf, "model_rf_fd001.pkl")
+
+# Charger plus tard
+rf_loaded = joblib.load("model_rf_fd001.pkl")
